@@ -88,7 +88,7 @@ mov eax, dword ptr [rbp+8]
    cd onlineasm
    ```
 
-2. Open `assembler.html` in your browser
+2. Open `index.html` in your browser
 
 No build process or dependencies required.
 
@@ -96,7 +96,7 @@ No build process or dependencies required.
 
 ```
 onlineasm/
-├── assembler.html      # Main application
+├── index.html          # Main application
 ├── capstone.min.js     # Capstone disassembler library
 ├── keystone.min.js     # Keystone assembler library
 ├── README.md           # English README

@@ -87,7 +87,7 @@ mov eax, dword ptr [rbp+8]
    cd onlineasm
    ```
 
-2. 在浏览器中打开 `assembler.html`
+2. 在浏览器中打开 `index.html`
 
 无需构建过程或依赖安装。
 
@@ -95,7 +95,7 @@ mov eax, dword ptr [rbp+8]
 
 ```
 onlineasm/
-├── assembler.html      # 主应用程序
+├── index.html          # 主应用程序
 ├── capstone.min.js     # Capstone 反汇编库
 ├── keystone.min.js     # Keystone 汇编库
 ├── README.md           # 英文说明
