@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="title">Online Disassembler and Assembler</title>
+
+    <script>
+        (function() {
+            // 先检测主题和语言，在渲染前完成
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const savedTheme = localStorage.getItem('theme');
+            document.documentElement.setAttribute('data-theme', savedTheme || (prefersDark ? 'dark' : 'light'));
+
+            const savedLang = localStorage.getItem('lang');
+            const browserLang = navigator.language || navigator.userLanguage;
+            const isChinese = browserLang.startsWith('zh');
+            const lang = savedLang || (isChinese ? 'zh' : 'en');
+            document.documentElement.setAttribute('data-lang', lang);
+
+            // 设置全局语言变量，供后续使用
+            window.__initialLang = lang;
+        })();
+    </script>
+
+    <style>
+        :root {
+            --bg-gradient-start: #f5f7fa;
+            --bg-gradient-end: #e4e8ec;
+            --text-primary: #333;
+            --text-secondary: #666;
+            --text-muted: #888;
+            --panel-bg: rgba(255, 255, 255, 0.9);
+            --panel-border: rgba(0, 0, 0, 0.1);
+            --input-bg: #fff;
+            --input-border: #ddd;
+            --input-text: #333;
+            --textarea-bg: #f8f9fa;
+            --textarea-text: #0066cc;
+            --textarea-placeholder: #999;
+            --accent-color: #0066cc;
+            --accent-light: rgba(0, 102, 204, 0.1);
+            --accent-shadow: rgba(0, 102, 204, 0.2);
+            --btn-primary-start: #0066cc;
+            --btn-primary-end: #0052a3;
+            --btn-secondary-start: #28a745;
+            --btn-secondary-end: #218838;
+            --table-header-bg: rgba(0, 102, 204, 0.1);
+            --table-row-hover: rgba(0, 0, 0, 0.03);
+            --table-border: rgba(0, 0, 0, 0.05);
+            --address-color: #0066cc;
+            --bytes-color: #cc3333;
+            --mnemonic-color: #008800;
+            --operands-color: #cc6600;
+            --success-bg: rgba(0, 136, 0, 0.1);
+            --success-text: #008800;
+            --error-bg: rgba(204, 51, 51, 0.1);
+            --error-text: #cc3333;
+        }
+
+        [data-theme="dark"] {
+            --bg-gradient-start: #1a1a2e;
+            --bg-gradient-end: #16213e;
+            --text-primary: #e0e0e0;
+            --text-secondary: #aaa;
+            --text-muted: #888;
+            --panel-bg: rgba(255, 255, 255, 0.05);
+            --panel-border: rgba(255, 255, 255, 0.1);
+            --input-bg: rgba(0, 0, 0, 0.3);
+            --input-border: rgba(255, 255, 255, 0.2);
+            --input-text: #fff;
+            --textarea-bg: rgba(0, 0, 0, 0.4);
+            --textarea-text: #00ff88;
+            --textarea-placeholder: #666;
+            --accent-color: #00d4ff;
+            --accent-light: rgba(0, 212, 255, 0.2);
+            --accent-shadow: rgba(0, 212, 255, 0.5);
+            --btn-primary-start: #00d4ff;
+            --btn-primary-end: #0099cc;
+            --btn-secondary-start: #28a745;
+            --btn-secondary-end: #1e7e34;
+            --table-header-bg: rgba(0, 212, 255, 0.2);
+            --table-row-hover: rgba(255, 255, 255, 0.05);
+            --table-border: rgba(255, 255, 255, 0.05);
+            --address-color: #00d4ff;
+            --bytes-color: #ff6b6b;
+            --mnemonic-color: #00ff88;
+            --operands-color: #ffd93d;
+            --success-bg: rgba(0, 255, 136, 0.1);
+            --success-text: #00ff88;
+            --error-bg: rgba(255, 68, 68, 0.1);
+            --error-text: #ff4444;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: var(--text-primary);
+            transition: background 0.3s ease, color 0.3s ease;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 1000;
+        }
+        .control-btn {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            transition: all 0.3s ease;
+        }
+        .control-btn:hover { transform: translateY(-2px); box-shadow: 0 2px 10px var(--accent-shadow); }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            color: var(--accent-color);
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        [data-theme="dark"] .header h1 { text-shadow: 0 0 10px var(--accent-shadow); }
+        .header p { color: var(--text-muted); font-size: 14px; }
+
+        .cards-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+            transition: max-width 0.3s ease;
+        }
+        .cards-container.side-by-side {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            max-width: 1400px;
+        }
+
+        .card {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        [data-theme="light"] .card { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1); }
+        [data-theme="dark"] .card { backdrop-filter: blur(10px); }
+
+        .card-header {
+            background: linear-gradient(135deg, var(--btn-primary-start), var(--btn-primary-end));
+            color: #fff;
+            padding: 15px 20px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .card-body {
+            padding: 20px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            min-width: 0;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            min-width: 0;
+        }
+        .form-group.full { grid-column: span 4; }
+
+        label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        select, input {
+            padding: 10px 12px;
+            border: 1px solid var(--input-border);
+            border-radius: 6px;
+            background: var(--input-bg);
+            color: var(--input-text);
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+            width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+        }
+        select:focus, input:focus { outline: none; border-color: var(--accent-color); }
+        select:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        textarea {
+            width: 100%;
+            flex: 1;
+            min-height: 120px;
+            padding: 12px;
+            border: 1px solid var(--input-border);
+            border-radius: 6px;
+            background: var(--textarea-bg);
+            color: var(--textarea-text);
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            resize: none;
+            transition: border-color 0.3s ease;
+        }
+        textarea:focus { outline: none; border-color: var(--accent-color); }
+        textarea::placeholder { color: var(--textarea-placeholder); }
+
+        .btn-row { display: flex; gap: 10px; }
+
+        .btn {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            color: #fff;
+        }
+        .btn:hover { transform: translateY(-1px); box-shadow: 0 4px 15px var(--accent-shadow); }
+        .btn-disasm { background: linear-gradient(135deg, var(--btn-primary-start), var(--btn-primary-end)); }
+        .btn-asm { background: linear-gradient(135deg, var(--btn-secondary-start), var(--btn-secondary-end)); }
+
+        .card-header-asm { background: linear-gradient(135deg, var(--btn-secondary-start), var(--btn-secondary-end)); }
+
+        .footer {
+            text-align: center;
+            padding: 30px 20px;
+            margin-top: 20px;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+        .footer a {
+            color: var(--accent-color);
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+        .footer a:hover {
+            color: var(--text-primary);
+            text-decoration: underline;
+        }
+        .footer-divider {
+            margin: 0 10px;
+            opacity: 0.5;
+        }
+        .footer-main {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+        .footer-main .github-icon {
+            margin-left: 4px;
+        }
+        .github-icon {
+            fill: var(--accent-color);
+            transition: fill 0.3s ease;
+        }
+        .footer-main:hover .github-icon {
+            fill: var(--text-primary);
+        }
+        .footer-powered {
+            margin-top: 15px;
+        }
+
+        .output-area {
+            flex: 1;
+            min-height: 150px;
+            max-height: 300px;
+            overflow: auto;
+            border: 1px solid var(--panel-border);
+            border-radius: 6px;
+            background: var(--textarea-bg);
+        }
+
+        .output-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+        .output-table th {
+            background: var(--table-header-bg);
+            color: var(--accent-color);
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 2px solid var(--accent-light);
+            position: sticky;
+            top: 0;
+        }
+        .output-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--table-border);
+        }
+        .output-table tr:hover { background: var(--table-row-hover); }
+        .address { color: var(--address-color); }
+        .bytes { color: var(--bytes-color); }
+        .mnemonic { color: var(--mnemonic-color); font-weight: bold; }
+        .operands { color: var(--operands-color); }
+
+        .info-text { color: var(--text-muted); font-size: 12px; }
+
+        .placeholder-text {
+            color: var(--text-muted);
+            text-align: center;
+            padding: 40px 20px;
+            font-size: 14px;
+        }
+
+        .status {
+            padding: 10px 15px;
+            border-radius: 6px;
+            text-align: center;
+            font-size: 14px;
+        }
+        .status.success { background: var(--success-bg); color: var(--success-text); }
+        .status.error { background: var(--error-bg); color: var(--error-text); }
+
+        .result-bytes {
+            margin-top: 10px;
+            padding: 10px;
+            background: var(--textarea-bg);
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            word-break: break-all;
+            color: var(--bytes-color);
+        }
+
+        @media (max-width: 900px) {
+            .controls { top: 10px; right: 10px; }
+            .control-btn { width: 40px; height: 40px; font-size: 16px; }
+        }
+        @media (max-width: 1000px) {
+            .cards-container.side-by-side {
+                grid-template-columns: 1fr;
+                max-width: 900px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <button class="control-btn" onclick="toggleLayout()" title="Toggle Layout">
+            <svg id="layout-icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M3 3h8v8H3V3zm0 10h8v8H3v-8zm10-10h8v8h-8V3zm0 10h8v8h-8v-8z"/>
+            </svg>
+        </button>
+        <button class="control-btn" onclick="toggleLang()" title="Language"><span id="lang-icon">EN</span></button>
+        <button class="control-btn" onclick="toggleTheme()" title="Theme"><span id="theme-icon">🌙</span></button>
+    </div>
+
+    <div class="header">
+        <h1 data-i18n="pageTitle"></h1>
+        <p data-i18n="subtitle"></p>
+    </div>
+
+    <div class="cards-container">
+        <!-- 反汇编器卡片 -->
+        <div class="card">
+            <div class="card-header" data-i18n="disasmTitle"></div>
+            <div class="card-body">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label data-i18n="architecture"></label>
+                        <select id="disasm-arch" onchange="updateDisasmModeOptions()">
+                            <option value="0">ARM</option>
+                            <option value="1">ARM64</option>
+                            <option value="2">MIPS</option>
+                            <option value="3" selected>x86</option>
+                            <option value="4">PowerPC</option>
+                            <option value="5">SPARC</option>
+                            <option value="6">SystemZ</option>
+                            <option value="7">XCore</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="endianness"></label>
+                        <select id="disasm-endian">
+                            <option value="0" selected data-i18n-option="littleEndian"></option>
+                            <option value="-2147483648" data-i18n-option="bigEndian"></option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="mode"></label>
+                        <select id="disasm-mode"></select>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="offset"></label>
+                        <input type="text" id="disasm-offset" value="0x10000">
+                    </div>
+                </div>
+
+                <div class="form-group full">
+                    <label data-i18n="machineCode"></label>
+                    <textarea id="disasm-input">55 31 D2 89 E5 8B 45 08 89 5D FC 8B 4D 10</textarea>
+                </div>
+
+                <div class="btn-row">
+                    <button class="btn btn-disasm" onclick="disassemble()" data-i18n="disassembleBtn"></button>
+                    <button class="btn btn-disasm" onclick="copyDisasmResult()" data-i18n="copyBtn"></button>
+                </div>
+
+                <div class="form-group full" style="flex:1; display:flex; flex-direction:column;">
+                    <label data-i18n="disassemblyResult"></label>
+                    <div class="output-area" id="disasm-output">
+                        <p class="placeholder-text" data-i18n="outputPlaceholder"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 汇编器卡片 -->
+        <div class="card">
+            <div class="card-header card-header-asm" data-i18n="asmTitle"></div>
+            <div class="card-body">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label data-i18n="architecture"></label>
+                        <select id="asm-arch" onchange="updateAsmModeOptions()">
+                            <option value="1">ARM</option>
+                            <option value="2">ARM64</option>
+                            <option value="3">MIPS</option>
+                            <option value="4" selected>x86</option>
+                            <option value="5">PowerPC</option>
+                            <option value="6">SPARC</option>
+                            <option value="7">SystemZ</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="endianness"></label>
+                        <select id="asm-endian">
+                            <option value="0" selected data-i18n-option="littleEndian"></option>
+                            <option value="1073741824" data-i18n-option="bigEndian"></option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="mode"></label>
+                        <select id="asm-mode"></select>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="syntax"></label>
+                        <select id="asm-syntax">
+                            <option value="1" selected>Intel</option>
+                            <option value="2">AT&T</option>
+                            <option value="4">NASM</option>
+                            <option value="8">MASM</option>
+                            <option value="16">GAS</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group full">
+                    <label data-i18n="assemblyCode"></label>
+                    <textarea id="asm-input">push rbp
+xor edx, edx
+mov ebp, esp
+mov eax, dword ptr [rbp+8]</textarea>
+                </div>
+
+                <div class="btn-row">
+                    <button class="btn btn-asm" onclick="assemble()" data-i18n="assembleBtn"></button>
+                    <button class="btn btn-asm" onclick="copyAsmResult()" data-i18n="copyBtn"></button>
+                </div>
+
+                <div class="form-group full" style="flex:1; display:flex; flex-direction:column;">
+                    <label data-i18n="assemblyResult"></label>
+                    <div class="output-area" id="asm-output">
+                        <p class="placeholder-text" data-i18n="asmOutputPlaceholder"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <div class="footer-main">
+            <span>© 2026</span>
+            <a href="https://github.com/secnotes" target="_blank" rel="noopener">Security Notes</a>
+            <span class="footer-divider">|</span>
+            <svg class="github-icon" viewBox="0 0 16 16" width="14" height="14"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+            <a href="https://github.com/secnotes/onlineasm" target="_blank" rel="noopener">Star on GitHub</a>
+        </div>
+        <div class="footer-powered">
+            Powered by <a href="https://github.com/AlexAltea/capstone.js" target="_blank" rel="noopener">Capstone.js</a> and <a href="https://github.com/AlexAltea/keystone.js" target="_blank" rel="noopener">Keystone.js</a>
+        </div>
+    </footer>
+
+    <script src="capstone.min.js"></script>
+    <script src="keystone.min.js"></script>
+    <script>
+        // ==================== 国际化 ====================
+        const i18n = {
+            zh: {
+                title: '在线反汇编器和汇编器',
+                pageTitle: '在线反汇编器和汇编器',
+                subtitle: '支持 ARM, ARM64, MIPS, x86, PowerPC, SPARC, SystemZ 等多种架构',
+                disasmTitle: '反汇编器 (Disassembler)',
+                asmTitle: '汇编器 (Assembler)',
+                architecture: '架构',
+                endianness: '字节序',
+                mode: '模式',
+                offset: '起始地址',
+                machineCode: '机器码',
+                disassembleBtn: '反汇编',
+                disassemblyResult: '反汇编结果',
+                outputPlaceholder: '点击"反汇编"按钮查看结果',
+                syntax: '语法',
+                assemblyCode: '汇编代码',
+                assembleBtn: '汇编',
+                copyBtn: '复制结果',
+                assemblyResult: '汇编结果',
+                asmOutputPlaceholder: '点击"汇编"按钮查看结果',
+                littleEndian: '小端',
+                bigEndian: '大端',
+                tableAddress: '地址',
+                tableBytes: '字节',
+                tableInstruction: '指令',
+                tableOperands: '操作数',
+                successDisasm: '成功反汇编 {count} 条指令',
+                successAsm: '成功汇编 {count} 条指令，共 {size} 字节',
+                copied: '已复制到剪贴板',
+                errorInit: '初始化失败',
+                errorEmpty: '请输入内容',
+                errorDisasm: '无法反汇编',
+                errorAsm: '汇编失败',
+                modeARM: 'ARM 模式',
+                modeThumb: 'Thumb 模式',
+                modeARM64: 'ARM64',
+                modeMIPS32: 'MIPS32',
+                modeMIPS64: 'MIPS64',
+                mode16bit: '16 位',
+                mode32bit: '32 位',
+                mode64bit: '64 位',
+                modeSparc: 'Sparc',
+                modeSparcV9: 'SparcV9',
+                modeSystemZ: 'SystemZ'
+            },
+            en: {
+                title: 'Online Disassembler and Assembler',
+                pageTitle: 'Online Disassembler and Assembler',
+                subtitle: 'Supports ARM, ARM64, MIPS, x86, PowerPC, SPARC, SystemZ and more',
+                disasmTitle: 'Disassembler',
+                asmTitle: 'Assembler',
+                architecture: 'Architecture',
+                endianness: 'Endianness',
+                mode: 'Mode',
+                offset: 'Offset',
+                machineCode: 'Machine Code',
+                disassembleBtn: 'Disassemble',
+                disassemblyResult: 'Disassembly Result',
+                outputPlaceholder: 'Click "Disassemble" to see results',
+                syntax: 'Syntax',
+                assemblyCode: 'Assembly Code',
+                assembleBtn: 'Assemble',
+                copyBtn: 'Copy',
+                assemblyResult: 'Assembly Result',
+                asmOutputPlaceholder: 'Click "Assemble" to see results',
+                littleEndian: 'Little-Endian',
+                bigEndian: 'Big-Endian',
+                tableAddress: 'Address',
+                tableBytes: 'Bytes',
+                tableInstruction: 'Instruction',
+                tableOperands: 'Operands',
+                successDisasm: 'Successfully disassembled {count} instructions',
+                successAsm: 'Successfully assembled {count} instructions, {size} bytes',
+                copied: 'Copied to clipboard',
+                errorInit: 'Initialization failed',
+                errorEmpty: 'Please enter input',
+                errorDisasm: 'Cannot disassemble',
+                errorAsm: 'Assembly failed',
+                modeARM: 'ARM mode',
+                modeThumb: 'Thumb mode',
+                modeARM64: 'ARM64',
+                modeMIPS32: 'MIPS32',
+                modeMIPS64: 'MIPS64',
+                mode16bit: '16-bit',
+                mode32bit: '32-bit',
+                mode64bit: '64-bit',
+                modeSparc: 'Sparc',
+                modeSparcV9: 'SparcV9',
+                modeSystemZ: 'SystemZ'
+            }
+        };
+
+        let currentLang = 'zh';
+        function t(key, params = {}) {
+            let text = i18n[currentLang][key] || i18n['zh'][key] || key;
+            for (const [k, v] of Object.entries(params)) text = text.replace(`{${k}}`, v);
+            return text;
+        }
+        function updateLanguage() {
+            document.title = t('title');
+            document.querySelectorAll('[data-i18n]').forEach(el => el.textContent = t(el.getAttribute('data-i18n')));
+            document.querySelectorAll('[data-i18n-option]').forEach(el => el.textContent = t(el.getAttribute('data-i18n-option')));
+            updateDisasmModeOptions();
+            updateAsmModeOptions();
+        }
+        function toggleLang() {
+            currentLang = currentLang === 'zh' ? 'en' : 'zh';
+            document.documentElement.setAttribute('data-lang', currentLang);
+            localStorage.setItem('lang', currentLang);
+            document.getElementById('lang-icon').textContent = currentLang === 'zh' ? 'EN' : '中';
+            updateLanguage();
+        }
+
+        // ==================== 主题 ====================
+        function toggleTheme() {
+            const newTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            document.getElementById('theme-icon').textContent = newTheme === 'dark' ? '☀️' : '🌙';
+        }
+
+        // ==================== 模式配置 ====================
+        function getDisasmModes() {
+            return {
+                0: [{ value: 0, text: t('modeARM'), default: true }, { value: 16, text: t('modeThumb') }],
+                1: [{ value: 0, text: t('modeARM64'), default: true }],
+                2: [{ value: 4, text: t('modeMIPS32'), default: true }, { value: 8, text: t('modeMIPS64') }],
+                3: [{ value: 2, text: t('mode16bit') }, { value: 4, text: t('mode32bit') }, { value: 8, text: t('mode64bit'), default: true }],
+                4: [{ value: 4, text: t('mode32bit') }, { value: 8, text: t('mode64bit'), default: true }],
+                5: [{ value: 0, text: t('modeSparc'), default: true }, { value: 16, text: t('modeSparcV9') }],
+                6: [{ value: 0, text: t('modeSystemZ'), default: true }],
+                7: [{ value: 0, text: 'XCore', default: true }]
+            };
+        }
+        function getAsmModes() {
+            return {
+                1: [{ value: 1, text: t('modeARM'), default: true }, { value: 16, text: t('modeThumb') }],
+                2: [{ value: 0, text: t('modeARM64'), default: true }],
+                3: [{ value: 4, text: t('modeMIPS32'), default: true }, { value: 8, text: t('modeMIPS64') }],
+                4: [{ value: 2, text: t('mode16bit') }, { value: 4, text: t('mode32bit') }, { value: 8, text: t('mode64bit'), default: true }],
+                5: [{ value: 4, text: t('mode32bit') }, { value: 8, text: t('mode64bit'), default: true }],
+                6: [{ value: 4, text: t('mode32bit'), default: true }, { value: 8, text: t('mode64bit') }],
+                7: [{ value: 0, text: t('modeSystemZ'), default: true }]
+            };
+        }
+
+        function updateDisasmModeOptions() {
+            const arch = parseInt(document.getElementById('disasm-arch').value);
+            const modeSelect = document.getElementById('disasm-mode');
+            const modes = getDisasmModes()[arch] || [];
+            modeSelect.innerHTML = '';
+            modes.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.value;
+                opt.textContent = m.text;
+                opt.selected = m.default;
+                modeSelect.appendChild(opt);
+            });
+        }
+        function updateAsmModeOptions() {
+            const arch = parseInt(document.getElementById('asm-arch').value);
+            const modeSelect = document.getElementById('asm-mode');
+            const syntaxSelect = document.getElementById('asm-syntax');
+            const modes = getAsmModes()[arch] || [];
+            modeSelect.innerHTML = '';
+            modes.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.value;
+                opt.textContent = m.text;
+                opt.selected = m.default;
+                modeSelect.appendChild(opt);
+            });
+            syntaxSelect.disabled = arch !== 4;
+        }
+
+        // ==================== 反汇编 ====================
+        let csDecoder = null;
+        let lastDisasmResult = null;
+
+        function initCsDecoder() {
+            const arch = parseInt(document.getElementById('disasm-arch').value);
+            const mode = parseInt(document.getElementById('disasm-mode').value) | parseInt(document.getElementById('disasm-endian').value);
+            try {
+                const newDecoder = new cs.Capstone(arch, mode);
+                if (csDecoder) csDecoder.close();
+                csDecoder = newDecoder;
+                return true;
+            } catch (e) { return false; }
+        }
+
+        function formatHex(v, l) { return ('00000000' + v.toString(16).toUpperCase()).slice(-l); }
+
+        function disassemble() {
+            const outputDiv = document.getElementById('disasm-output');
+            if (!initCsDecoder()) { outputDiv.innerHTML = `<div class="status error">${t('errorInit')}</div>`; return; }
+
+            const input = document.getElementById('disasm-input').value.trim();
+            if (!input) { outputDiv.innerHTML = `<div class="status error">${t('errorEmpty')}</div>`; return; }
+
+            try {
+                const bytes = [];
+                const cleaned = input.replace(/[^a-fA-F0-9]/g, '');
+                for (let i = 0; i < cleaned.length; i += 2) bytes.push(parseInt(cleaned.substr(i, 2), 16));
+                const offset = parseInt(document.getElementById('disasm-offset').value) || 0;
+                const instructions = csDecoder.disasm(bytes, offset);
+
+                if (!instructions.length) { outputDiv.innerHTML = `<div class="status error">${t('errorDisasm')}</div>`; return; }
+
+                lastDisasmResult = instructions;
+
+                let html = `<table class="output-table"><thead><tr>
+                    <th>${t('tableAddress')}</th><th>${t('tableBytes')}</th><th>${t('tableInstruction')}</th><th>${t('tableOperands')}</th>
+                </tr></thead><tbody>`;
+                for (const ins of instructions) {
+                    html += `<tr><td class="address">0x${formatHex(ins.address, 8)}</td><td class="bytes">${ins.bytes.map(b => formatHex(b, 2)).join(' ')}</td><td class="mnemonic">${ins.mnemonic}</td><td class="operands">${ins.op_str}</td></tr>`;
+                }
+                html += `</tbody></table><div class="status success">${t('successDisasm', { count: instructions.length })}</div>`;
+                outputDiv.innerHTML = html;
+            } catch (e) { outputDiv.innerHTML = `<div class="status error">${e.message}</div>`; }
+        }
+
+        function copyDisasmResult() {
+            if (!lastDisasmResult || !lastDisasmResult.length) { alert(t('errorEmpty')); return; }
+            // 复制格式：指令 操作数（不含地址）
+            const lines = lastDisasmResult.map(ins => {
+                return `${ins.mnemonic}\t${ins.op_str}`;
+            });
+            const text = lines.join('\n');
+            navigator.clipboard.writeText(text).then(() => alert(t('copied')));
+        }
+
+        // ==================== 汇编 ====================
+        let ksEncoder = null;
+        let lastAsmResult = null;
+
+        function initKsEncoder() {
+            const arch = parseInt(document.getElementById('asm-arch').value);
+            const mode = parseInt(document.getElementById('asm-mode').value) | parseInt(document.getElementById('asm-endian').value);
+            try {
+                const newEncoder = new ks.Keystone(arch, mode);
+                if (arch === 4) newEncoder.option(ks.OPT_SYNTAX, parseInt(document.getElementById('asm-syntax').value));
+                if (ksEncoder) ksEncoder.close();
+                ksEncoder = newEncoder;
+                return true;
+            } catch (e) { console.error('Keystone init error:', e); return false; }
+        }
+
+        function assemble() {
+            const outputDiv = document.getElementById('asm-output');
+            if (!initKsEncoder()) { outputDiv.innerHTML = `<div class="status error">${t('errorInit')}</div>`; return; }
+
+            const input = document.getElementById('asm-input').value.trim();
+            if (!input) { outputDiv.innerHTML = `<div class="status error">${t('errorEmpty')}</div>`; return; }
+
+            // 按行分割指令
+            const lines = input.split('\n').filter(l => l.trim());
+
+            try {
+                // 逐条汇编每条指令
+                const results = [];
+                let totalBytes = [];
+                let failedLines = [];
+
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (!line) continue;
+
+                    try {
+                        const result = ksEncoder.asm(line, 0);
+                        if (result && result.length > 0) {
+                            const mcArray = result instanceof Uint8Array ? Array.from(result) : result;
+                            results.push({
+                                instruction: line,
+                                bytes: mcArray
+                            });
+                            totalBytes = totalBytes.concat(mcArray);
+                        } else {
+                            failedLines.push(i + 1);
+                        }
+                    } catch (e) {
+                        failedLines.push(i + 1);
+                    }
+                }
+
+                if (results.length === 0) {
+                    outputDiv.innerHTML = `<div class="status error">${t('errorAsm')}</div>`;
+                    return;
+                }
+
+                lastAsmResult = totalBytes;
+
+                // 构建表格
+                let html = `<table class="output-table"><thead><tr>
+                    <th>${t('tableInstruction')}</th><th>${t('tableBytes')}</th>
+                </tr></thead><tbody>`;
+
+                for (const r of results) {
+                    const hexBytes = r.bytes.map(b => formatHex(b, 2)).join(' ');
+                    html += `<tr><td class="mnemonic">${r.instruction}</td><td class="bytes">${hexBytes}</td></tr>`;
+                }
+
+                html += `</tbody></table>`;
+
+                // 显示错误行（如果有）
+                if (failedLines.length > 0) {
+                    html += `<div class="status error">Line ${failedLines.join(', ')}: ${t('errorAsm')}</div>`;
+                }
+
+                html += `<div class="status success">${t('successAsm', { count: results.length, size: totalBytes.length })}</div>`;
+
+                // 显示完整字节
+                const allBytes = totalBytes.map(b => formatHex(b, 2)).join(' ');
+                html += `<div class="result-bytes">${allBytes}</div>`;
+
+                outputDiv.innerHTML = html;
+            } catch (e) {
+                outputDiv.innerHTML = `<div class="status error">${t('errorAsm')}: ${e.message || e}</div>`;
+            }
+        }
+
+        function copyAsmResult() {
+            if (!lastAsmResult || !lastAsmResult.length) { alert(t('errorEmpty')); return; }
+            const hexBytes = lastAsmResult.map(b => formatHex(b, 2)).join(' ');
+            navigator.clipboard.writeText(hexBytes).then(() => alert(t('copied')));
+        }
+
+        // ==================== 布局切换 ====================
+        let currentLayout = 'stacked'; // 'stacked' or 'side-by-side'
+
+        function toggleLayout() {
+            const container = document.querySelector('.cards-container');
+            const icon = document.getElementById('layout-icon');
+
+            if (currentLayout === 'stacked') {
+                currentLayout = 'side-by-side';
+                container.classList.add('side-by-side');
+                // 切换为横向图标
+                icon.innerHTML = '<path d="M4 4h6v16H4V4zm10 0h6v16h-6V4z"/>';
+            } else {
+                currentLayout = 'stacked';
+                container.classList.remove('side-by-side');
+                // 切换为网格图标
+                icon.innerHTML = '<path d="M3 3h8v8H3V3zm0 10h8v8H3v-8zm10-10h8v8h-8V3zm0 10h8v8h-8v-8z"/>';
+            }
+            localStorage.setItem('layout', currentLayout);
+        }
+
+        function initLayout() {
+            const savedLayout = localStorage.getItem('layout');
+            const container = document.querySelector('.cards-container');
+            const icon = document.getElementById('layout-icon');
+
+            // 检查浏览器宽度，如果足够宽且用户之前选择了并排，则恢复
+            if (savedLayout === 'side-by-side' && window.innerWidth >= 1000) {
+                currentLayout = 'side-by-side';
+                container.classList.add('side-by-side');
+                icon.innerHTML = '<path d="M4 4h6v16H4V4zm10 0h6v16h-6V4z"/>';
+            }
+        }
+
+        // 窗口大小变化时检查
+        window.addEventListener('resize', function() {
+            const container = document.querySelector('.cards-container');
+            if (currentLayout === 'side-by-side' && window.innerWidth < 1000) {
+                // 屏幕太窄，强制切换为堆叠
+                currentLayout = 'stacked';
+                container.classList.remove('side-by-side');
+                document.getElementById('layout-icon').innerHTML = '<path d="M3 3h8v8H3V3zm0 10h8v8H3v-8zm10-10h8v8h-8V3zm0 10h8v8h-8v-8z"/>';
+            }
+        });
+        document.addEventListener('DOMContentLoaded', function() {
+            // 使用在渲染前设置的语言
+            currentLang = window.__initialLang || 'zh';
+            document.getElementById('lang-icon').textContent = currentLang === 'zh' ? 'EN' : '中';
+            document.getElementById('theme-icon').textContent = document.documentElement.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙';
+            // 初始化布局
+            initLayout();
+            // 立即应用语言，避免闪烁
+            updateLanguage();
+        });
+    </script>
+</body>
+</html>
