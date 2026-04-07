@@ -245,6 +245,17 @@
             color: #fff;
         }
         .btn:hover { transform: translateY(-1px); box-shadow: 0 4px 15px var(--accent-shadow); }
+
+        .copy-format-select {
+            padding: 12px 8px;
+            border: 1px solid var(--input-border);
+            border-radius: 6px;
+            background: var(--input-bg);
+            color: var(--input-text);
+            font-size: 14px;
+            cursor: pointer;
+            width: auto;
+        }
         .btn-disasm { background: linear-gradient(135deg, var(--btn-primary-start), var(--btn-primary-end)); }
         .btn-asm { background: linear-gradient(135deg, var(--btn-secondary-start), var(--btn-secondary-end)); }
 
@@ -487,6 +498,12 @@ mov eax, dword ptr [rbp+8]</textarea>
 
                 <div class="btn-row">
                     <button class="btn btn-asm" onclick="assemble()" data-i18n="assembleBtn"></button>
+                    <select id="asm-copy-format" class="copy-format-select" onchange="updateAsmResultFormat()">
+                        <option value="hex" data-i18n-option="formatHex"></option>
+                        <option value="inline" data-i18n-option="formatInline"></option>
+                        <option value="carray" data-i18n-option="formatCArray"></option>
+                        <option value="python" data-i18n-option="formatPython"></option>
+                    </select>
                     <button class="btn btn-asm" onclick="copyAsmResult()" data-i18n="copyBtn"></button>
                 </div>
 
@@ -561,7 +578,11 @@ mov eax, dword ptr [rbp+8]</textarea>
                 mode64bit: '64 位',
                 modeSparc: 'Sparc',
                 modeSparcV9: 'SparcV9',
-                modeSystemZ: 'SystemZ'
+                modeSystemZ: 'SystemZ',
+                formatHex: 'Hex',
+                formatInline: 'Inline',
+                formatCArray: 'C-Array',
+                formatPython: 'Python'
             },
             en: {
                 title: 'Online Disassembler and Assembler',
@@ -606,7 +627,11 @@ mov eax, dword ptr [rbp+8]</textarea>
                 mode64bit: '64-bit',
                 modeSparc: 'Sparc',
                 modeSparcV9: 'SparcV9',
-                modeSystemZ: 'SystemZ'
+                modeSystemZ: 'SystemZ',
+                formatHex: 'Hex',
+                formatInline: 'Inline',
+                formatCArray: 'C-Array',
+                formatPython: 'Python'
             }
         };
 
@@ -829,8 +854,7 @@ mov eax, dword ptr [rbp+8]</textarea>
                 html += `<div class="status success">${t('successAsm', { count: results.length, size: totalBytes.length })}</div>`;
 
                 // 显示完整字节
-                const allBytes = totalBytes.map(b => formatHex(b, 2)).join(' ');
-                html += `<div class="result-bytes">${allBytes}</div>`;
+                html += `<div class="result-bytes" id="asm-result-bytes">${formatAsmOutput('hex')}</div>`;
 
                 outputDiv.innerHTML = html;
             } catch (e) {
@@ -838,10 +862,36 @@ mov eax, dword ptr [rbp+8]</textarea>
             }
         }
 
+        function formatAsmOutput(format) {
+            if (!lastAsmResult || !lastAsmResult.length) return '';
+            switch (format) {
+                case 'hex':
+                    return lastAsmResult.map(b => formatHex(b, 2)).join(' ');
+                case 'inline':
+                    return lastAsmResult.map(b => '\\x' + formatHex(b, 2)).join('');
+                case 'carray':
+                    const cBytes = lastAsmResult.map(b => '0x' + formatHex(b, 2)).join(', ');
+                    return `unsigned char opcodes[] = {\n    ${cBytes},\n};`;
+                case 'python':
+                    const pyBytes = lastAsmResult.map(b => '0x' + formatHex(b, 2)).join(', ');
+                    return `opcodes = [\n    ${pyBytes},\n]`;
+                default:
+                    return lastAsmResult.map(b => formatHex(b, 2)).join(' ');
+            }
+        }
+
+        function updateAsmResultFormat() {
+            const resultDiv = document.getElementById('asm-result-bytes');
+            if (resultDiv && lastAsmResult && lastAsmResult.length) {
+                const format = document.getElementById('asm-copy-format').value;
+                resultDiv.textContent = formatAsmOutput(format);
+            }
+        }
+
         function copyAsmResult() {
             if (!lastAsmResult || !lastAsmResult.length) { alert(t('errorEmpty')); return; }
-            const hexBytes = lastAsmResult.map(b => formatHex(b, 2)).join(' ');
-            navigator.clipboard.writeText(hexBytes).then(() => alert(t('copied')));
+            const format = document.getElementById('asm-copy-format').value;
+            navigator.clipboard.writeText(formatAsmOutput(format)).then(() => alert(t('copied')));
         }
 
         // ==================== 布局切换 ====================
